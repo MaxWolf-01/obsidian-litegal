@@ -22,11 +22,11 @@ export default class LiteGallery extends Plugin {
 					var image_file = this.app.metadataCache.getFirstLinkpathDest(linkpath, image)
 					if (image_file == null) {
 						new Notice(`LiteGallery: Image not found: ${image}`)
+						return null
 					}
-					console.log(image_file?.path)
-					return image_file?.path
-				}
-			).filter((image_path) => image_path !== null) as string[]
+					return this.app.vault.getResourcePath(image_file)
+				})
+				.filter((image_path) => image_path !== null) as string[]
 			// Create the lightbox container
 			const lightbox_container = document.body.createEl('div', {
 				cls: 'litegal-lightbox-container hidden'
