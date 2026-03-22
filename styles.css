@@ -32,6 +32,10 @@
     justify-content: center;
 }
 
+.litegal-active-inner video {
+    max-width: 100%;
+}
+
 .litegal-arrow {
     cursor: pointer;
     font-size: 30px;
@@ -77,6 +81,10 @@
     overflow: hidden;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.litegal-lightbox-media {
+    display: contents;
 }
 
 .litegal-lightbox-image {

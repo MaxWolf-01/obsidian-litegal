@@ -1,4 +1,4 @@
-Fork of the original (abandoned) repository, so i can make use of features like https://github.com/jpoles1/obsidian-litegal/pull/12
+Fork of the original (abandoned) repository, so i can make use of features like https://github.com/jpoles1/obsidian-litegal/pull/12 and add video support (mp4, webm, ogv, mov, mkv).
 If you want to use it too:
 - Add this plugin to obsidian: https://github.com/TfTHacker/obsidian42-brat
 - Remove your existing litegal plugin installation from the Obsidian plugin settings

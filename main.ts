@@ -1,203 +1,201 @@
 import { Plugin, Notice, getLinkpath } from 'obsidian'
-import test from 'node:test';
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogv', 'ogg', 'mov', 'mkv']);
+const FALLBACK_IMG = 'https://raw.githubusercontent.com/jpoles1/obsidian-litegal/eb0e30b2709a3081dd8d32ef4371367b95694881/404notfound.jpg';
+
+interface MediaItem {
+	src: string;
+	isVideo: boolean;
+}
+
+function isVideoUrl(url: string): boolean {
+	const ext = url.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || '';
+	return VIDEO_EXTENSIONS.has(ext);
+}
 
 export default class LiteGallery extends Plugin {
 	async onload () {
 		this.registerMarkdownCodeBlockProcessor("litegal", async (source, el, ctx) => {
-			// Define variables for tracking the active slide and preview scroll speed
 			let active_slide = 0;
 			let preview_scroll_speed = 0;
-			
-			// Split the source into lines, remove brackets and whitespace, and filter out empty lines
-			const image_list = source.split('\n')
+
+			const media_list: MediaItem[] = source.split('\n')
 				.map((line) => line.replace(/!?\[\[/, "").replace("]]", "").trim())
 				.filter((line) => line)
-				.map((image) => {
-					// If image is a URL (http/https) or a local file path, return it as is
-					if (image.match(/^(http|https):\/\//)) {
-						return image
+				.map((entry) => {
+					if (entry.match(/^(http|https):\/\//)) {
+						return { src: entry, isVideo: isVideoUrl(entry) };
 					}
-					// Get first match for the given image name
-					var linkpath = getLinkpath(image)
-					var image_file = this.app.metadataCache.getFirstLinkpathDest(linkpath, image)
-					if (image_file == null) {
-						new Notice(`LiteGallery: Image not found: ${image}`)
+					var linkpath = getLinkpath(entry)
+					var file = this.app.metadataCache.getFirstLinkpathDest(linkpath, entry)
+					if (file == null) {
+						new Notice(`LiteGallery: File not found: ${entry}`)
 						return null
 					}
-					return this.app.vault.getResourcePath(image_file)
+					return {
+						src: this.app.vault.getResourcePath(file),
+						isVideo: VIDEO_EXTENSIONS.has(file.extension.toLowerCase())
+					}
 				})
-				.filter((image_path) => image_path !== null) as string[]
-			// Create the lightbox container
+				.filter((item): item is MediaItem => item !== null)
+
+			// Lightbox (created unconditionally, only shown when needed)
 			const lightbox_container = document.body.createEl('div', {
 				cls: 'litegal-lightbox-container hidden'
 			})
-			lightbox_container.onclick = () => {
-				lightbox_container.addClass('hidden') // Hide the lightbox when clicking outside of the image
-			}
-			
-			// Create the lightbox element and handle click events to prevent closing the lightbox when clicking on the image
+
 			const lightbox = lightbox_container.createEl('div')
 			lightbox.classList.add('litegal-lightbox')
 			lightbox.onclick = (event) => {
 				event.stopPropagation()
 			}
 
-			// Create the gallery container
 			const gallery = el.createEl('div', { cls: 'litegal' })
-			gallery.classList.add('litegal')
 
-			if (image_list.length > 0) {
-					
-				// Create the container for the active image
-				const active_image_container = gallery.createEl('div', {
-					cls: 'litegal-active'
+			if (media_list.length > 0) {
+
+				// --- Active slide area ---
+				const active_container = gallery.createEl('div', { cls: 'litegal-active' })
+				const active_inner = active_container.createEl('div', { cls: 'litegal-active-inner' })
+
+				// --- Lightbox internals ---
+				const lb_larrow = lightbox.createEl('div', {
+					text: '<', cls: 'litegal-arrow litegal-arrow-left'
 				})
-				
-				const active_image_container_inner = active_image_container.createEl('div', {
-					cls: 'litegal-active-inner'
+				const lb_rarrow = lightbox.createEl('div', {
+					text: '>', cls: 'litegal-arrow litegal-arrow-right'
+				})
+				const lb_media = lightbox.createEl('div', { cls: 'litegal-lightbox-media' })
+				const lb_exit = lightbox.createEl('div', {
+					text: 'X', cls: 'litegal-lightbox-exit'
 				})
 
-				// Create the active image element and set its source to the first image in the list
-				const active_image = active_image_container_inner.createEl('img')
-				active_image.src = image_list[active_slide]
+				// --- Helpers ---
+				function pauseVideo(container: HTMLElement) {
+					const video = container.querySelector('video')
+					if (video) video.pause()
+				}
 
-				active_image.onclick = () => {
-					lightbox_container.removeClass('hidden')
-					lightbox_image.src = image_list[active_slide]
+				function setActiveMedia() {
+					pauseVideo(active_inner)
+					active_inner.empty()
+					const item = media_list[active_slide]
+					if (item.isVideo) {
+						const video = active_inner.createEl('video')
+						video.src = item.src
+						video.controls = true
+						video.preload = 'metadata'
+					} else {
+						const img = active_inner.createEl('img')
+						img.src = item.src
+						img.onerror = function() { this.src = FALLBACK_IMG }
+						img.onclick = () => {
+							lightbox_container.removeClass('hidden')
+							setLightboxMedia()
+						}
+					}
 				}
-				active_image.onerror = function() {
-					this.src='https://raw.githubusercontent.com/jpoles1/obsidian-litegal/eb0e30b2709a3081dd8d32ef4371367b95694881/404notfound.jpg'
+
+				function setLightboxMedia() {
+					pauseVideo(lb_media)
+					lb_media.empty()
+					const item = media_list[active_slide]
+					if (item.isVideo) {
+						const video = lb_media.createEl('video', { cls: 'litegal-lightbox-image' })
+						video.src = item.src
+						video.controls = true
+						video.preload = 'metadata'
+					} else {
+						const img = lb_media.createEl('img', { cls: 'litegal-lightbox-image' })
+						img.src = item.src
+						img.onerror = function() { this.src = FALLBACK_IMG }
+					}
 				}
-				
-				// Create the left arrow element and handle click event to navigate to the previous image
-				const larrow = active_image_container.createEl('div', {
-					text: '<',
-					cls: 'litegal-arrow litegal-arrow-left'
+
+				function closeLightbox() {
+					lightbox_container.addClass('hidden')
+					pauseVideo(lb_media)
+				}
+
+				function navigate(delta: number) {
+					active_slide = (active_slide + delta + media_list.length) % media_list.length
+					setActiveMedia()
+				}
+
+				// --- Wire lightbox close handlers ---
+				lightbox_container.onclick = closeLightbox
+				lb_exit.onclick = closeLightbox
+				document.addEventListener('keydown', (event) => {
+					if (event.key === 'Escape') closeLightbox()
 				})
-				larrow.onclick = () => {
-					active_slide = (active_slide - 1 + image_list.length) % image_list.length
-					active_image.src = image_list[active_slide]
+
+				lb_larrow.onclick = () => {
+					navigate(-1)
+					setLightboxMedia()
+				}
+				lb_rarrow.onclick = () => {
+					navigate(1)
+					setLightboxMedia()
 				}
 
-				// Create the right arrow element and handle click event to navigate to the next image
-				const rarrow = active_image_container.createEl('div', {
-					text: '>',
-					cls: 'litegal-arrow litegal-arrow-right'
+				// Initial render
+				setActiveMedia()
+
+				// --- Gallery navigation arrows ---
+				const larrow = active_container.createEl('div', {
+					text: '<', cls: 'litegal-arrow litegal-arrow-left'
 				})
-				rarrow.onclick = () => {
-					active_slide = (active_slide + 1) % image_list.length
-					active_image.src = image_list[active_slide]
-				}
+				larrow.onclick = () => navigate(-1)
 
-				// Create the container for the preview section
-				const preview_outer_container = gallery.createEl('div', { cls: 'litegal-preview-outer' })
-
-				// Create the left arrow element for preview scrolling and handle mouse events to control scroll speed
-				const preview_larrow = preview_outer_container.createEl('div', {
-					text: '<',
-					cls: 'litegal-arrow litegal-arrow-left'
+				const rarrow = active_container.createEl('div', {
+					text: '>', cls: 'litegal-arrow litegal-arrow-right'
 				})
-				preview_larrow.onmouseenter = () => {
-					preview_scroll_speed = -5
-				}
-				preview_larrow.onmouseleave = () => {
-					preview_scroll_speed = 0
-				}
+				rarrow.onclick = () => navigate(1)
 
-				// Create the right arrow element for preview scrolling and handle mouse events to control scroll speed
-				const preview_rarrow = preview_outer_container.createEl('div', {
-					text: '>',
-					cls: 'litegal-arrow litegal-arrow-right'
-				})
-				preview_rarrow.onmouseenter = () => {
-					preview_scroll_speed = 5
-				}
-				preview_rarrow.onmouseleave = () => {
-					preview_scroll_speed = 0
-				}
+				// --- Preview strip ---
+				const preview_outer = gallery.createEl('div', { cls: 'litegal-preview-outer' })
 
-				// Create the container for the preview images
-				const preview_container = preview_outer_container.createEl('div', {
-					cls: 'litegal-preview'
+				const preview_larrow = preview_outer.createEl('div', {
+					text: '<', cls: 'litegal-arrow litegal-arrow-left'
 				})
-				
-				// Set up interval to continuously scroll the preview images based on the scroll speed
-				setInterval(() => { 
+				preview_larrow.onmouseenter = () => { preview_scroll_speed = -5 }
+				preview_larrow.onmouseleave = () => { preview_scroll_speed = 0 }
+
+				const preview_rarrow = preview_outer.createEl('div', {
+					text: '>', cls: 'litegal-arrow litegal-arrow-right'
+				})
+				preview_rarrow.onmouseenter = () => { preview_scroll_speed = 5 }
+				preview_rarrow.onmouseleave = () => { preview_scroll_speed = 0 }
+
+				const preview_container = preview_outer.createEl('div', { cls: 'litegal-preview' })
+
+				setInterval(() => {
 					preview_container.scrollLeft += preview_scroll_speed
 				}, 10)
 
-				// Iterate over the image list and create preview elements for each image
-				image_list.forEach(async (image_path: string, i) => {				
-					// Create the preview image element and set its source to the corresponding image in the list
-					const preview_elem = preview_container.createEl('img', {
-						cls: 'litegal-preview-img'
-					})
-					preview_elem.src = image_path
-					preview_elem.onerror = function() {
-						this.src='https://raw.githubusercontent.com/jpoles1/obsidian-litegal/eb0e30b2709a3081dd8d32ef4371367b95694881/404notfound.jpg'
+				media_list.forEach((item, i) => {
+					let preview: HTMLElement
+					if (item.isVideo) {
+						const video = preview_container.createEl('video', { cls: 'litegal-preview-img' })
+						video.src = item.src
+						video.preload = 'metadata'
+						video.muted = true
+						preview = video
+					} else {
+						const img = preview_container.createEl('img', { cls: 'litegal-preview-img' })
+						img.src = item.src
+						img.onerror = function() { this.src = FALLBACK_IMG }
+						preview = img
 					}
-					
-					// Handle click event to set the active slide and update the active image
-					preview_elem.onclick = () => {
+					preview.onclick = () => {
 						active_slide = i
-						active_image.src = `${image_list[active_slide]}`
-					}					
-					// Append the preview element to the preview container
-				})
-					
-				// Finish creating the lightbox element
-				
-				// Create the left arrow element for the lightbox and handle click event to navigate to the previous
-				const lightbox_larrow = lightbox.createEl('div', { 
-					text: '<', 
-					cls: 'litegal-arrow litegal-arrow-left' 
-				})
-				lightbox_larrow.onclick = () => {
-					active_slide = (active_slide - 1 + image_list.length) % image_list.length
-					lightbox_image.src = image_list[active_slide]
-					active_image.src = image_list[active_slide]
-				}
-
-				// Create the right arrow element for the lightbox and handle click event to navigate to the next
-				const lightbox_rarrow = lightbox.createEl('div', {
-					text: '>',
-					cls: 'litegal-arrow litegal-arrow-right'
-				})
-				lightbox_rarrow.onclick = () => {
-					active_slide = (active_slide + 1) % image_list.length
-					lightbox_image.src = image_list[active_slide]
-					active_image.src = image_list[active_slide]
-				}
-
-				// Create the image element for the lightbox
-				const lightbox_image = lightbox.createEl('img', {
-					cls: 'litegal-lightbox-image',
-				})
-				lightbox_image.onerror = function() {
-					this.src='https://raw.githubusercontent.com/jpoles1/obsidian-litegal/eb0e30b2709a3081dd8d32ef4371367b95694881/404notfound.jpg'
-				}						
-
-
-				// Create the exit element for the lightbox and handle click event to close the lightbox
-				const lightbox_exit = lightbox.createEl('div', {
-					text: 'X',
-					cls: 'litegal-lightbox-exit'
-				})
-				lightbox_exit.onclick = () => {
-					lightbox_container.addClass('hidden')
-				}
-
-				// Close the lightbox when pressing the escape key
-				document.addEventListener('keydown', (event) => {
-					if (event.key === 'Escape') {
-						lightbox_container.addClass('hidden')
+						setActiveMedia()
 					}
 				})
-				
+
 			} else {
-				// If no images were found, display a message in the gallery container
 				gallery.createEl('p', {
-					text: 'No images found, please check your image list. If your images are not found, please check your "image folders" in settings.',
+					text: 'No media found, please check your file list.',
 					cls: 'litegal-no-images'
 				})
 			}
@@ -205,6 +203,5 @@ export default class LiteGallery extends Plugin {
 	}
 
 	onunload () {
-	//this.observer.disconnect()
 	}
 }
